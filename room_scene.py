@@ -166,7 +166,11 @@ class CouncilScene(tk.Canvas):
             source = ImageTk.getimage(original) if isinstance(original, ImageTk.PhotoImage) else None
             if source is None:
                 import io
-                source = Image.open(io.BytesIO(original.data(format='png')))
+                # PhotoImage.data() was added after Python 3.12; the underlying
+                # Tk command is available on every supported Python version.
+                data = original.tk.call(str(original), 'data', '-format', 'png')
+                if isinstance(data, str):data = data.encode('latin1')
+                source = Image.open(io.BytesIO(data))
             self._icon_cache = {k:v for k,v in self._icon_cache.items() if k[0] != fid}
             self._icon_cache[key] = ImageTk.PhotoImage(
                 source.convert('RGBA').resize((size, size), Image.Resampling.LANCZOS), master=self)
