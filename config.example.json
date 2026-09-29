@@ -1,0 +1,53 @@
+{
+  "providers": {
+    "openai": {
+      "api_key": "",
+      "base_url": "https://api.openai.com/v1"
+    },
+    "openrouter": {
+      "api_key": "",
+      "base_url": "https://openrouter.ai/api/v1"
+    },
+    "xai": {
+      "api_key": "",
+      "base_url": "https://api.x.ai/v1"
+    },
+    "kimi": {
+      "api_key": "",
+      "base_url": "https://api.moonshot.ai/v1"
+    },
+    "local": {
+      "api_key": "",
+      "base_url": "http://127.0.0.1:18434/v1",
+      "models_path": ""
+    }
+  },
+  "room": {
+    "participants": {
+      "atlas": {
+        "provider": "openai",
+        "model": ""
+      },
+      "jade": {
+        "provider": "openrouter",
+        "model": ""
+      },
+      "meridian": {
+        "provider": "openrouter",
+        "model": ""
+      },
+      "frontier": {
+        "provider": "xai",
+        "model": ""
+      },
+      "haven": {
+        "provider": "local",
+        "model": ""
+      },
+      "horizon": {
+        "provider": "kimi",
+        "model": ""
+      }
+    }
+  }
+}

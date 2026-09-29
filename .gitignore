@@ -1,0 +1,44 @@
+# Local credentials and provider settings
+/config.json
+/openai_token.json
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+
+# Personal conversations, prompts, memory, working files and write backups
+/room_settings.json
+/room_memory.json
+/chats/
+/replays/
+/workspace/
+/tool_backups/
+/archive/
+*.log
+*.bak
+*.bak_*
+*.tmp
+
+# Python environments, caches and build output
+/.venv/
+/venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Models belong in the separately managed local runtime
+*.gguf
+*.safetensors
+
+# Editors and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
