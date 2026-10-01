@@ -86,13 +86,19 @@ class Conversation:
 
 
 def parse_response(raw):
-    try:
-        obj = json.loads(raw.strip().removeprefix('```json').removesuffix('```').strip())
-        if not isinstance(obj, dict):
-            raise ValueError()
-        return obj
-    except (ValueError, TypeError):
-        return None
+    # Providers without a JSON response mode sometimes wrap the object in prose or fences.
+    text = raw.strip().removeprefix('```json').removesuffix('```').strip() if isinstance(raw, str) else ''
+    candidates = [text]
+    if '{' in text and '}' in text:
+        candidates.append(text[text.index('{'):text.rindex('}') + 1])
+    for candidate in candidates:
+        try:
+            obj = json.loads(candidate)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(obj, dict):
+            return obj
+    return None
 
 
 def reply(cfg, spec, messages, tools=None, cancelled=None):

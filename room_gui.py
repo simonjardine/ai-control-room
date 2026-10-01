@@ -21,7 +21,8 @@ ROOT = RESOURCE_DIR
 BG, PANEL, BORDER, TEXT, MUTED, BLUE = '#070d18', '#101d30', '#233c57', '#e1edfa', '#8ba4bc', '#57cfff'
 IDENTITIES = [('openai','GPT','#73e0be'), ('deepseek','DeepSeek','#6599ff'),
               ('qwen','Qwen','#b5a0ff'), ('grok','Grok','#d4e2f4'),
-              ('gemma','Gemma','#84baff'), ('kimi','Kimi','#8f96ff')]
+              ('gemma','Gemma','#84baff'), ('kimi','Kimi','#8f96ff'),
+              ('gemini','Gemini','#8ab4f8'), ('claude','Claude','#e0926f')]
 
 
 class RoomApp(tk.Tk):
@@ -210,7 +211,8 @@ class RoomApp(tk.Tk):
         toolbar=tk.Frame(self,bg=BG);toolbar.pack(fill='x',padx=22,pady=(0,6))
         self.button(toolbar,'Files & internet',self.open_tools).pack(side='left')
         tk.Label(toolbar,textvariable=self.tool_status,bg=BG,fg=MUTED,font=('Segoe UI',9)).pack(side='left',padx=12)
-        self.button(toolbar,'Tool activity',lambda:self.toggle_transcript(True)).pack(side='right')
+        self.conversation_button=self.button(toolbar,'Conversation',self.toggle_transcript)
+        self.conversation_button.pack(side='right')
         self.refresh_tool_status()
 
         # Pack the composer before the scene so it remains visible at minimum size.
@@ -233,8 +235,15 @@ class RoomApp(tk.Tk):
         self.input=tk.Text(row,height=2,bg=BG,fg=TEXT,insertbackground=TEXT,
             font=('Segoe UI',11),relief='flat',padx=10,pady=8,wrap='word')
         self.input.pack(side='left',fill='x',expand=True)
+        # Enter sends; Shift+Enter keeps Tk's default newline. Ctrl+Enter still sends.
+        self.input.bind('<Return>',self._send_shortcut)
+        self.input.bind('<Shift-Return>',lambda event:None)
         self.input.bind('<Control-Return>',self._send_shortcut)
         self.button(row,'Send ↗',self.send,True).pack(side='right',padx=(10,0))
+        self.recorder=None;self.transcribing=False
+        self.mic_button=self.button(row,'● Mic',self.toggle_mic)
+        self.mic_button.pack(side='right',padx=(10,0))
+        self.bind('<F2>',lambda event:self.toggle_mic())
         self.button(row,'Pause',self.pause).pack(side='right',padx=(8,0))
         self.button(row,'One round / resume',self.invite).pack(side='right',padx=(8,0))
 
@@ -265,6 +274,55 @@ class RoomApp(tk.Tk):
         self.send()
         return 'break'
 
+    def toggle_mic(self):
+        from room_voice import MAX_SECONDS, Recorder, VoiceError
+        if self.transcribing:return
+        if self.recorder is not None:
+            self.finish_recording();return
+        recorder=Recorder()
+        try:recorder.start()
+        except VoiceError as exc:self.status.set(str(exc));return
+        self.recorder=recorder
+        self.mic_button.configure(text='■ Stop',bg='#7a2630')
+        def tick():
+            if self.recorder is not recorder or self.closed:return
+            seconds=int(recorder.elapsed)
+            if seconds>=MAX_SECONDS:self.finish_recording();return
+            self.status.set(f'Recording {seconds//60}:{seconds%60:02d} · click Stop or press F2 when you finish speaking.')
+            self.after(250,tick)
+        tick()
+
+    def finish_recording(self):
+        from room_voice import MIN_SECONDS, VoiceError, transcribe, wav_seconds
+        recorder,self.recorder=self.recorder,None
+        if recorder is None:return
+        try:audio=recorder.stop()
+        except Exception as exc:
+            self.mic_button.configure(text='● Mic',bg=PANEL)
+            self.status.set(f'Recording failed ({type(exc).__name__}).');return
+        if wav_seconds(audio)<MIN_SECONDS:
+            self.mic_button.configure(text='● Mic',bg=PANEL)
+            self.status.set('Recording was too short. Click Mic, speak, then click Stop.');return
+        self.transcribing=True
+        self.mic_button.configure(text='Transcribing…',bg=PANEL,state='disabled')
+        self.status.set('Transcribing your recording with OpenAI…')
+        cfg=self.cfg
+        def worker():
+            try:ok,text=True,transcribe(audio,cfg)
+            except VoiceError as exc:ok,text=False,str(exc)
+            except Exception as exc:ok,text=False,f'Transcription failed ({type(exc).__name__}).'
+            self.results.put(('voice',ok,text))
+        threading.Thread(target=worker,daemon=True).start()
+
+    def voice_result(self,ok,text):
+        self.transcribing=False
+        self.mic_button.configure(text='● Mic',state='normal')
+        if not ok:self.status.set(text);return
+        before=self.input.get('1.0','insert')
+        self.input.insert('insert',(' ' if before and not before[-1].isspace() else '')+text)
+        self.input.focus_set()
+        self.status.set('Transcribed into your message. Edit it if needed, then press Enter to send.')
+
     def toggle_transcript(self,show=None):
         visible=not self.transcript_visible if show is None else bool(show)
         if visible==self.transcript_visible:return
@@ -275,6 +333,7 @@ class RoomApp(tk.Tk):
             self.canvas.pack(side='left',fill='both',expand=True)
         else:self.transcript_panel.pack_forget()
         self.transcript_button.configure(text='Hide transcript' if visible else 'Show transcript')
+        self.conversation_button.configure(text='Hide conversation' if visible else 'Conversation')
         self.after_idle(self.draw)
 
     def open_seat(self,fid):
@@ -402,6 +461,8 @@ class RoomApp(tk.Tk):
                 item=self.results.get_nowait()
                 if item[0]=='tool_event':
                     self.handle_tool_event(*item[1:]);continue
+                if item[0]=='voice':
+                    self.voice_result(*item[1:]);continue
                 fid,channel,ok,text=item
                 self.busy=False;self.active=None
                 self.append(channel,fid,text if ok else 'Response stopped / error: '+text,not ok)
@@ -465,6 +526,10 @@ class RoomApp(tk.Tk):
     def close(self):
         if not self.persist_chat():return
         self.closed=True;self.cancel_turn.set();self.pending.clear()
+        if self.recorder is not None:
+            try:self.recorder.stop()
+            except Exception:pass
+            self.recorder=None
         for request in self.approval_requests:
             if request.get('finish'):request['finish']()
             else:request['event'].set()

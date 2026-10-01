@@ -23,6 +23,6 @@ jobs:
       - name: Check dependencies
         run: python -m pip check
       - name: Compile source
-        run: python -m compileall -q main.py config.py providers.py room.py room_gui.py room_scene.py room_dialogs.py room_settings.py room_store.py room_tools.py room_tool_dialogs.py room_web.py tests
+        run: python -m compileall -q main.py config.py providers.py room.py room_gui.py room_scene.py room_dialogs.py room_settings.py room_store.py room_tools.py room_tool_dialogs.py room_web.py room_voice.py tests
       - name: Test without API keys
         run: python -m unittest discover -s tests -v

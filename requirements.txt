@@ -1,2 +1,4 @@
 requests>=2.32.0,<3
 Pillow>=10.0,<13
+anthropic>=1.11,<2
+sounddevice>=0.5,<1

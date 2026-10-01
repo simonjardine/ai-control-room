@@ -2,7 +2,7 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from room import Conversation, speaking_order
+from room import Conversation, parse_response, speaking_order
 from room_store import RoomStore, memory_key
 
 
@@ -44,6 +44,12 @@ class ConversationTests(unittest.TestCase):
             self.assertFalse(store.last()['entries'])
             self.assertFalse(store.last()['use_memory'])
             self.assertEqual(store.load(first['id'])['entries'], first['entries'])
+
+    def test_json_reply_is_found_inside_prose_or_fences(self):
+        self.assertEqual(parse_response('Sure!\n```json\n{"text":"Hi"}\n```'), {'text': 'Hi'})
+        self.assertEqual(parse_response('Here you go: {"text":"Hi"} Thanks'), {'text': 'Hi'})
+        self.assertIsNone(parse_response('No JSON at all'))
+        self.assertIsNone(parse_response('[1, 2]'))
 
     def test_speaking_order_has_each_seat_once(self):
         self.assertEqual(speaking_order(['jade', 'jade', 'unknown'], ['atlas', 'jade']), ['jade', 'atlas'])

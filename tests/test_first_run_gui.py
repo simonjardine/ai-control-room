@@ -38,6 +38,29 @@ class FirstRunGuiTests(unittest.TestCase):
         self.assertFalse(self.app.conversation.entries)
         self.request.assert_not_called()
 
+    def test_enter_sends_and_shift_enter_adds_a_newline(self):
+        with patch.object(self.app, 'send') as send:
+            self.app.input.focus_force()
+            self.app.input.insert('1.0', 'line one')
+            self.app.input.event_generate('<Shift-Return>')
+            self.app.update()
+            send.assert_not_called()
+            self.assertEqual(self.app.input.get('1.0', 'end-1c'), 'line one\n')
+            self.app.input.event_generate('<Return>')
+            self.app.update()
+            send.assert_called_once()
+        self.assertEqual(self.app.input.get('1.0', 'end-1c'), 'line one\n')
+
+    def test_conversation_button_opens_and_closes_the_panel(self):
+        button = self.app.conversation_button
+        self.assertFalse(self.app.transcript_visible)
+        button.invoke()
+        self.assertTrue(self.app.transcript_visible)
+        self.assertEqual(button.cget('text'), 'Hide conversation')
+        button.invoke()
+        self.assertFalse(self.app.transcript_visible)
+        self.assertEqual(button.cget('text'), 'Conversation')
+
     def test_one_model_can_be_saved_and_is_the_only_invited_seat(self):
         settings = Settings(self.app)
         settings.withdraw()

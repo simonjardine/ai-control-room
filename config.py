@@ -33,6 +33,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "openrouter": {"api_key": "", "base_url": "https://openrouter.ai/api/v1"},
         "xai": {"api_key": "", "base_url": "https://api.x.ai/v1"},
         "kimi": {"api_key": "", "base_url": "https://api.moonshot.ai/v1"},
+        "gemini": {
+            "api_key": "", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai"
+        },
+        "anthropic": {"api_key": "", "base_url": "https://api.anthropic.com"},
         "local": {
             "api_key": "", "base_url": "http://127.0.0.1:18434/v1", "models_path": ""
         },

@@ -35,13 +35,15 @@ The app opens without credentials and does not contact any provider on startup. 
 1. Open **Settings & APIs → APIs**. Enter the API key for a provider you want to use. Click **Test / refresh**.
 2. Open **Models & individual prompts**. Choose a provider and a model for one or more seats. Leave unused model fields blank. You can also type a provider's exact model ID.
 3. Edit each seat's prompt if wanted, then click **Save settings & prompts**. You can save API settings before choosing any models.
-4. Click the table to address the public room, or a model's chair for a private chat. Use the invitation checkboxes to choose who responds. Send a message with **Send** or **Ctrl+Enter**.
+4. Click the table to address the public room, or a model's chair for a private chat. Use the invitation checkboxes to choose who responds. Press **Enter** (or click **Send**) to send a message; **Shift+Enter** starts a new line.
 
-Settings are saved locally to `config.json`; the supplied `config.example.json` contains empty keys and no model assignments. A ChatGPT subscription or desktop login is not used as an API credential.
+Settings are saved locally to `config.json`; the supplied `config.example.json` contains empty keys and no model assignments. ChatGPT, Claude and Gemini consumer subscriptions or logins are not API credentials and cannot be used here; each provider needs its own API key.
 
 ### Providers and local models
 
 - OpenAI, OpenRouter, xAI and Moonshot/Kimi use their configured OpenAI-compatible endpoints.
+- **Google Gemini** uses Google's OpenAI-compatible endpoint. Create a key in [Google AI Studio](https://aistudio.google.com/apikey). Gemini 2.5 and later thinking models run with low reasoning effort.
+- **Anthropic (Claude)** uses the official `anthropic` Python SDK and the Messages API. Create a key in the [Claude Console](https://console.anthropic.com/). Usage is billed to that API account, not a Claude Pro/Max subscription. Current Claude models run with low effort for conversational turns.
 - Local chat defaults to `http://127.0.0.1:18434/v1` for Hermes. An explicit local key can be entered in Settings.
 - For Hermes on Windows, the app can read the current user's `%LOCALAPPDATA%\hermes\runtimes\llamacpp\server.json`. No runtime credential is included in the repository.
 - **Local LLM · Load / unload** manages models already registered with a running Hermes router. Other OpenAI-compatible servers can support chat and model discovery without supporting these Hermes-specific controls.
@@ -56,6 +58,7 @@ OpenRouter, Kimi and local models keep their default reasoning mode. Supported O
 - **Public room:** invited models reply in speaking order. Later speakers see earlier public replies. This is a discussion, not an independent voting experiment.
 - **Private chat:** only that seat's matching model receives the private channel. **Share latest private reply with room** explicitly copies a reply into the public discussion.
 - **Room controls:** edit individual prompts, speaking order and the optional GPT-last reviewer preset. Prompt and order changes apply to the next round.
+- **Mic (F2):** click **● Mic**, speak, then click **■ Stop**. The recording is transcribed with OpenAI `gpt-4o-mini-transcribe` using your OpenAI key and placed in the message box for you to check before pressing Enter. Recordings are limited to three minutes and are not saved. Without an OpenAI key, Windows voice typing (**Win+H**) works in the message box.
 - **Pause:** holds the remaining reply queue and cancels pending write approvals. An already running provider request can finish.
 - **New chat / Chat history:** start a fresh conversation or resume a saved one. The latest chat is restored when the app opens.
 - **Memory / recap:** host-edited notes, separately scoped to public or private conversations. A model does not automatically create long-term memory. Turn **Use saved memory** off for a fresh start without those notes.
@@ -82,7 +85,7 @@ Every write requires a host preview and **Approve / Decline**. Changes are check
 
 Files are limited to 128 KiB. Tools reject traversal, symlinks, junctions, hard links, known credential paths and detected secret-like content. These checks are not a substitute for choosing a suitable workspace. File excerpts go to the responding model's provider. The workspace is shared across public and private chats, so files are not private to one seat.
 
-Search uses your configured OpenAI key with `gpt-4.1-mini` and web search; normal API charges apply. Only the search query is sent to that service. Direct page reading needs no search API key, is limited to public HTTPS text, checks DNS and redirects, and has a 20-second deadline. Source links and tool results appear in **Tool activity**.
+Search uses your configured OpenAI key with `gpt-4.1-mini` and web search; normal API charges apply. Only the search query is sent to that service. Direct page reading needs no search API key, is limited to public HTTPS text, checks DNS and redirects, and has a 20-second deadline. Source links and tool results appear in the **Conversation** panel; click **Conversation** again to close it.
 
 Each reply has at most eight tool calls. Example tests:
 
@@ -109,7 +112,7 @@ Keep backups of this local data separately if you need it. Do not force-add cred
 ## Development and checks
 
 ```powershell
-.\.venv\Scripts\python.exe -m compileall -q main.py config.py providers.py room.py room_gui.py room_scene.py room_dialogs.py room_settings.py room_store.py room_tools.py room_tool_dialogs.py room_web.py tests
+.\.venv\Scripts\python.exe -m compileall -q main.py config.py providers.py room.py room_gui.py room_scene.py room_dialogs.py room_settings.py room_store.py room_tools.py room_tool_dialogs.py room_web.py room_voice.py tests
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 

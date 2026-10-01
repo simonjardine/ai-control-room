@@ -126,6 +126,10 @@ def resolve_credentials(
 
         "kimi": "https://api.moonshot.ai/v1",
 
+        "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+
+        "anthropic": "https://api.anthropic.com",
+
         "openrouter": "https://openrouter.ai/api/v1",
 
         "local": "http://127.0.0.1:18434/v1",
@@ -271,6 +275,8 @@ def list_models(provider: str, cfg: dict[str, Any]) -> tuple[bool, str, list[str
         hermes_base, hermes_key = resolve_hermes_local_endpoint()
         if base == hermes_base:
             key = hermes_key.strip()
+    if provider == "anthropic":
+        return _anthropic_models(key, base)
     try:
         resp = _request("GET", f"{base}/models", headers=_headers(key, provider),
                         timeout=provider_timeout(provider))
@@ -318,7 +324,7 @@ def _parse_model_ids(data: Any) -> list[str]:
 
                     if mid:
 
-                        ids.append(str(mid))
+                        ids.append(str(mid).removeprefix("models/"))
 
     seen: set[str] = set()
 
@@ -451,6 +457,81 @@ def _chat_retry_delay(resp: requests.Response) -> float:
     return 0.5
 
 
+ANTHROPIC_MAX_TOKENS = 16000
+# Claude models that accept output_config.effort; older ones (e.g. Haiku 4.5) reject it.
+_ANTHROPIC_EFFORT = re.compile(r"claude-(opus-(4-[5-9]|[5-9])|sonnet-(4-6|[5-9])|fable|mythos)")
+
+
+def _anthropic_client(key: str, base: str, timeout: float):
+    import anthropic  # Imported on use; only the Claude provider needs the SDK.
+    return anthropic.Anthropic(api_key=key, base_url=base, timeout=timeout, max_retries=0)
+
+
+def _anthropic_error(exc: Exception, key: str) -> tuple[str, bool]:
+    """Return a bounded, credential-free message and whether a retry may help."""
+    import anthropic
+    if isinstance(exc, anthropic.APITimeoutError):
+        return f"Provider request exceeded {DEFAULT_TIMEOUT:g}s deadline", False
+    if isinstance(exc, anthropic.AuthenticationError):
+        return "Anthropic rejected the API key (HTTP 401). Check it in Settings & APIs.", False
+    if isinstance(exc, anthropic.APIStatusError):
+        retry = isinstance(exc, (anthropic.RateLimitError, anthropic.InternalServerError,
+                                 anthropic.OverloadedError))
+        return f"HTTP {exc.status_code}: {_chat_error_text(exc.message, key)}", retry
+    if isinstance(exc, anthropic.APIConnectionError):
+        return f"Provider connection error ({type(exc).__name__})", True
+    return f"Provider request failed ({type(exc).__name__})", False
+
+
+def _anthropic_models(key: str, base: str) -> tuple[bool, str, list[str]]:
+    try:
+        client = _anthropic_client(key, base, DEFAULT_TIMEOUT)
+        models = _bounded_call(lambda: [m.id for m in client.models.list()], DEFAULT_TIMEOUT)
+    except requests.Timeout:
+        return False, "Model list request timed out", []
+    except Exception as exc:
+        return False, _anthropic_error(exc, key)[0], []
+    return True, f"OK: {len(models)} model(s)", models
+
+
+def _anthropic_chat(key: str, base: str, model: str,
+                    messages: list[dict[str, str]]) -> tuple[bool, str]:
+    """Claude through the official Messages API. The room's JSON contract stays in the prompt."""
+    system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+    turns = [dict(role=m["role"], content=m["content"]) for m in messages
+             if m["role"] in ("user", "assistant")]
+    request: dict[str, Any] = dict(model=model, max_tokens=ANTHROPIC_MAX_TOKENS, messages=turns)
+    if system:
+        request["system"] = system
+    if _ANTHROPIC_EFFORT.match(model):
+        request["output_config"] = {"effort": "low"}  # Conversational turns; keeps replies quick.
+    deadline = time.monotonic() + DEFAULT_TIMEOUT
+    for attempt in range(2):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        client = _anthropic_client(key, base, remaining)
+        try:
+            message = _bounded_call(lambda: client.messages.create(**request), remaining)
+        except requests.Timeout:
+            break
+        except Exception as exc:
+            text, retryable = _anthropic_error(exc, key)
+            if not retryable or attempt == 1 or deadline - time.monotonic() <= 1:
+                return False, text
+            time.sleep(0.5)
+            continue
+        if message.stop_reason == "max_tokens":
+            return False, "Response truncated at token limit"
+        if message.stop_reason == "refusal":
+            return False, "Claude declined this request (safety refusal)."
+        text = "".join(block.text for block in message.content if block.type == "text")
+        if not text.strip():
+            return False, "Empty final response"
+        return True, text
+    return False, f"Provider request exceeded {DEFAULT_TIMEOUT:g}s deadline"
+
+
 def chat_completion(
     provider: str,
     cfg: dict[str, Any],
@@ -470,12 +551,22 @@ def chat_completion(
         hermes_base, hermes_key = resolve_hermes_local_endpoint()
         if base == hermes_base:
             key = hermes_key.strip()
+    if provider == "anthropic":
+        return _anthropic_chat(key, base, model, messages)
 
     payload: dict[str, Any] = {
         "model": model, "messages": messages,
         "response_format": {"type": "json_object"},
     }
-    if provider == "openai":
+    if provider == "gemini":
+        # Gemini's compatibility layer documents schema outputs, not json_object, so the
+        # JSON contract stays in the prompt. Thinking shares the output budget: keep it
+        # low on thinking models and leave room for the final reply.
+        del payload["response_format"]
+        payload["max_tokens"] = max(8192, max_tokens)
+        if re.match(r"(models/)?gemini-(2\.5|[3-9])", model):
+            payload["reasoning_effort"] = "low"
+    elif provider == "openai":
         payload["max_completion_tokens"] = max(1024, max_tokens)
         if model.startswith(("gpt-5", "gpt-6", "o1", "o3", "o4")):
             payload["reasoning_effort"] = "low"
