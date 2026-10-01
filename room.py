@@ -1,6 +1,7 @@
 """Conversation state with explicit public/private context boundaries."""
 import json
 from datetime import datetime
+from uuid import uuid4
 from providers import chat_completion
 
 SEATS = dict(atlas='captain', jade='first_mate', meridian='crew_1', frontier='crew_2', haven='crew_3', horizon='kimi')
@@ -47,27 +48,42 @@ def speaking_order(saved, fids):
 
 
 class Conversation:
-    def __init__(self):
-        self.entries = []
+    def __init__(self, entries=None):
+        self.entries = entries if entries is not None else []
+        for entry in self.entries:
+            entry.setdefault('id', uuid4().hex)  # Older saved chats predate entry ids.
 
-    def add(self, channel, speaker, text, error=False):
-        entry = dict(channel=channel, speaker=speaker, text=text,
+    def add(self, channel, speaker, text, error=False, before=None):
+        entry = dict(id=uuid4().hex, channel=channel, speaker=speaker, text=text,
                      error=error, time=datetime.now().isoformat())
-        self.entries.append(entry)
+        index = self.index(before) if before else None
+        self.entries.insert(len(self.entries) if index is None else index, entry)
         return entry
+
+    def index(self, entry_id):
+        return next((i for i, e in enumerate(self.entries) if e.get('id') == entry_id), None)
 
     def visible(self, channel):
         return [e for e in self.entries if e['channel'] == channel]
 
-    def messages(self, fid, channel, prompt, topic, names=None, memory='', recap='', audience_key=None):
+    def messages(self, fid, channel, prompt, topic, names=None, memory='', recap='', audience_key=None,
+                 upto=None, blind_key=None):
+        """Build one model's context.
+
+        upto: only entries before this entry id (a retry sees the conversation as it was).
+        blind_key: hide other participants' entries from this blind round.
+        """
         if channel not in ('public', fid):
             raise ValueError('Private channel belongs to another participant')
         # No private message is ever inserted into the public context or another DM.
         names=names or {}
+        stop = self.index(upto) if upto else None
+        source = self.entries if stop is None else self.entries[:stop]
         history = [dict(speaker=e.get('display_name') or names.get(e['speaker'],e['speaker']),
                         text=e['text'] if e.get('kind')!='tool' else e['text'][:6000] +
                         ('\n[Earlier tool excerpt shortened.]' if len(e['text'])>6000 else ''))
-                   for e in self.visible(channel) if not e.get('error')
+                   for e in source if e['channel'] == channel and not e.get('error')
+                   and not (blind_key and e.get('round_key') == blind_key and e.get('owner', e['speaker']) != fid)
                    and (channel=='public' or audience_key is None or e.get('audience_key')==audience_key)][-32:]
         # Tool excerpts can be much larger than normal chat; bound history by characters too.
         budget=60000;bounded=[]

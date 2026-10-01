@@ -246,7 +246,11 @@ class CouncilScene(tk.Canvas):
             body_end = y+sh*(.14 if row < 2 else .39)
             self._target((x-body_width,y-radius-8,x+body_width,body_end), callback)
 
-            state = ('THINKING…' if active else 'PRIVATE OPEN' if selected else
+            step = app.work_step if active else None
+            thinking = ('VERDICT…' if step and step.get('job') == 'verdict' else
+                        f'ROUND {step["round"]}/{step["rounds"]}…' if step and step.get('rounds', 1) > 1 else
+                        'THINKING…')
+            state = (thinking if active else 'PRIVATE OPEN' if selected else
                      'INVITED' if app.select[fid].get() else 'NOT INVITED')
             if compact:
                 name = self._seat_name(fid, min(165, sw*.20), 9)
