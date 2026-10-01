@@ -4,11 +4,23 @@ A desktop room for a human host and up to six language models. Invite the room t
 
 ![Council chamber artwork](assets/room/council-chamber-v1.png)
 
-*Background artwork used by the interactive Tkinter interface. Model badges, controls and conversations are drawn by the app.*
+_Background artwork used by the interactive Tkinter interface. Model badges, controls and conversations are drawn by the app._
 
 This is an experimental Windows desktop application. Hosted models need your own provider API keys; local models need a separately running OpenAI-compatible server. The app does not include models or a hosted service.
 
-## Quick start on Windows
+## Download the Windows app
+
+Download `AI-Control-Room.exe` from the [latest release](https://github.com/simonjardine/ai-control-room/releases/latest) and put it in its own folder, for example `C:\AI Control Room\`. No Python installation is needed. The app keeps `config.json`, `chats/`, `replays/` and `workspace/` next to the exe, so choose a folder you can write to (not `Program Files`). Windows SmartScreen may warn about an unsigned download; choose **More info → Run anyway** only if you got it from this repository.
+
+To build the exe yourself:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_exe.ps1
+```
+
+The result is `dist\AI-Control-Room.exe`.
+
+## Quick start from source on Windows
 
 Install Python 3.12 or newer with Tcl/Tk support. From this repository's directory in PowerShell:
 
@@ -56,15 +68,15 @@ History is bounded to recent entries and text size. A long conversation is not a
 
 Available tools:
 
-| Tool | Purpose |
-| --- | --- |
-| `list_directory` | List workspace entries |
-| `read_file` | Read a bounded UTF-8 text excerpt |
-| `search_files` | Search text in the workspace |
-| `write_file` | Propose complete file contents |
-| `edit_file` | Propose one exact text replacement |
-| `web_search` | Search using the OpenAI Responses web-search service |
-| `fetch_web_page` | Read a public HTTPS text page |
+| Tool             | Purpose                                              |
+| ---------------- | ---------------------------------------------------- |
+| `list_directory` | List workspace entries                               |
+| `read_file`      | Read a bounded UTF-8 text excerpt                    |
+| `search_files`   | Search text in the workspace                         |
+| `write_file`     | Propose complete file contents                       |
+| `edit_file`      | Propose one exact text replacement                   |
+| `web_search`     | Search using the OpenAI Responses web-search service |
+| `fetch_web_page` | Read a public HTTPS text page                        |
 
 Every write requires a host preview and **Approve / Decline**. Changes are checked again after approval; existing files are backed up, writes are atomic, and the saved result is read back. Closing the preview or pausing declines it. There is no shell or code-execution tool.
 
@@ -82,15 +94,15 @@ Each reply has at most eight tool calls. Example tests:
 
 These files and directories are excluded from Git:
 
-| Location | Contents |
-| --- | --- |
-| `config.json` | Your provider keys and model assignments |
+| Location             | Contents                                               |
+| -------------------- | ------------------------------------------------------ |
+| `config.json`        | Your provider keys and model assignments               |
 | `room_settings.json` | Personal prompts, speaking order and workspace choices |
-| `room_memory.json` | Host-saved notes |
-| `chats/`, `replays/` | Saved conversations and tool activity |
-| `workspace/` | Shared working files |
-| `tool_backups/` | Backups of approved file changes |
-| `*.log` | Local diagnostics, including startup failures |
+| `room_memory.json`   | Host-saved notes                                       |
+| `chats/`, `replays/` | Saved conversations and tool activity                  |
+| `workspace/`         | Shared working files                                   |
+| `tool_backups/`      | Backups of approved file changes                       |
+| `*.log`              | Local diagnostics, including startup failures          |
 
 Keep backups of this local data separately if you need it. Do not force-add credentials or private conversations to Git.
 

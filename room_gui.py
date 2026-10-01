@@ -10,14 +10,14 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
 from datetime import datetime
-from config import load_config
+from config import APP_DIR, RESOURCE_DIR, load_config
 from providers import provider_timeout
 from room import Conversation, DEFAULT_PROMPT, current_prompt, reply, room_specs, speaking_order
 from room_store import RoomStore, memory_key, write_json, read_json
 from room_scene import CouncilScene
 from room_tools import RoomTools, default_tools, normalize_tools
 
-ROOT = Path(__file__).resolve().parent
+ROOT = RESOURCE_DIR
 BG, PANEL, BORDER, TEXT, MUTED, BLUE = '#070d18', '#101d30', '#233c57', '#e1edfa', '#8ba4bc', '#57cfff'
 IDENTITIES = [('openai','GPT','#73e0be'), ('deepseek','DeepSeek','#6599ff'),
               ('qwen','Qwen','#b5a0ff'), ('grok','Grok','#d4e2f4'),
@@ -29,7 +29,7 @@ class RoomApp(tk.Tk):
         super().__init__()
         self.title('AI Control Room | Seven seats')
         self.geometry('1480x940'); self.minsize(1180,800); self.configure(bg=BG)
-        self.data_root=Path(data_root) if data_root else ROOT
+        self.data_root=Path(data_root) if data_root else APP_DIR
         self.cfg = load_config(self.data_root/'config.json'); self.specs = room_specs(self.cfg)
         self.runtime_busy = False
         self.fids = list(self.specs); self.conversation = Conversation()

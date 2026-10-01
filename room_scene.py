@@ -1,11 +1,11 @@
 """Interactive council chamber. Artwork is decorative; chat state stays in RoomApp."""
-from pathlib import Path
 import tkinter as tk
 import tkinter.font as tkfont
 from PIL import Image, ImageTk
+from config import RESOURCE_DIR
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = RESOURCE_DIR
 BG = '#070d18'
 PANEL = '#0b1726'
 TEXT = '#e1edfa'

@@ -23,6 +23,17 @@ class ConfigTests(unittest.TestCase):
         example = json.loads(config.EXAMPLE_PATH.read_text(encoding='utf-8'))
         self.assertEqual(example, config.DEFAULT_CONFIG)
 
+    def test_frozen_build_keeps_user_data_next_to_exe_and_assets_in_bundle(self):
+        with tempfile.TemporaryDirectory() as folder:
+            exe = Path(folder) / 'AI-Control-Room.exe'
+            bundle = Path(folder) / '_MEI123'
+            with patch.object(config.sys, 'executable', str(exe)), \
+                 patch.object(config.sys, '_MEIPASS', str(bundle), create=True):
+                data, resources = config.app_dirs(frozen=True)
+            self.assertEqual(data, exe.resolve().parent)
+            self.assertEqual(resources, bundle)
+        self.assertEqual(config.app_dirs(frozen=False), (config.APP_DIR, config.RESOURCE_DIR))
+
     def test_save_and_partial_load_preserve_keys_without_modifying_defaults(self):
         before = copy.deepcopy(config.DEFAULT_CONFIG)
         with tempfile.TemporaryDirectory() as folder:

@@ -31,6 +31,7 @@ __pycache__/
 htmlcov/
 build/
 dist/
+*.spec
 *.egg-info/
 
 # Models belong in the separately managed local runtime

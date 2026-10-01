@@ -14,7 +14,11 @@ def main() -> int:
         run_app()
     except Exception as exc:
         # Desktop shortcuts use pythonw, which has no visible stderr console.
-        log_path=Path(__file__).resolve().parent/'crash.log'
+        try:
+            from config import APP_DIR
+        except Exception:
+            APP_DIR=Path(__file__).resolve().parent
+        log_path=APP_DIR/'crash.log'
         try:
             with log_path.open('a',encoding='utf-8') as log:
                 log.write(f'\n[{datetime.now().isoformat()}] Control room startup/runtime failure\n')

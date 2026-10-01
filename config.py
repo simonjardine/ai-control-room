@@ -3,12 +3,29 @@ from __future__ import annotations
 
 import copy
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
-APP_DIR = Path(__file__).resolve().parent
+
+def app_dirs(frozen: bool | None = None) -> tuple[Path, Path]:
+    """Return (data_dir, resource_dir).
+
+    From source both are this folder. A PyInstaller build unpacks bundled assets
+    to a temporary folder, so user data must live next to the .exe instead.
+    """
+    if frozen is None:
+        frozen = bool(getattr(sys, "frozen", False))
+    if frozen:
+        return (Path(sys.executable).resolve().parent,
+                Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent)))
+    here = Path(__file__).resolve().parent
+    return here, here
+
+
+APP_DIR, RESOURCE_DIR = app_dirs()
 CONFIG_PATH = APP_DIR / "config.json"
-EXAMPLE_PATH = APP_DIR / "config.example.json"
+EXAMPLE_PATH = RESOURCE_DIR / "config.example.json"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "providers": {

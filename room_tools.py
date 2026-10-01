@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path, PureWindowsPath
 from uuid import uuid4
 
-APP_DIR = Path(__file__).resolve().parent
+from config import APP_DIR
 MAX_FILE_BYTES = 128 * 1024
 MAX_OUTPUT_CHARS = 18000
 MAX_TOOL_STEPS = 8
