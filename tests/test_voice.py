@@ -76,8 +76,17 @@ class VoiceGuiTests(unittest.TestCase):
             self.app.close()
         self.temp.cleanup()
 
+    def test_mic_without_openai_key_explains_and_does_not_record(self):
+        with patch.object(room_voice, 'Recorder') as recorder:
+            self.app.mic_button.invoke()
+        recorder.assert_not_called()
+        self.assertEqual(self.app.mic_button.cget('text'), '● Mic')
+        self.assertIsNone(self.app.recorder)
+        self.assertIn('OpenAI API key', self.app.status.get())
+
     def test_mic_records_then_transcribes_into_the_draft(self):
-        with patch.object(room_voice, 'Recorder', FakeRecorder), \
+        with patch.object(room_voice, 'has_key', return_value=True), \
+             patch.object(room_voice, 'Recorder', FakeRecorder), \
              patch.object(room_voice, 'transcribe', return_value='spoken words') as transcribe:
             self.app.input.insert('1.0', 'Typed')
             self.app.mic_button.invoke()

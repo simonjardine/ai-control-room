@@ -77,11 +77,18 @@ def wav_seconds(data: bytes) -> float:
         return source.getnframes() / float(source.getframerate() or 1)
 
 
+NO_KEY_MESSAGE = ('The Mic needs an OpenAI API key for transcription. Add one in Settings & APIs → openai, '
+                  'or press Win+H for Windows voice typing.')
+
+
+def has_key(cfg) -> bool:
+    return bool(resolve_credentials('openai', cfg)[0])
+
+
 def transcribe(data: bytes, cfg) -> str:
     key, base, _ = resolve_credentials('openai', cfg)
     if not key:
-        raise VoiceError('Voice input uses your OpenAI API key. Add it in Settings & APIs, '
-                         'or press Win+H for Windows voice typing.')
+        raise VoiceError(NO_KEY_MESSAGE)
     try:
         resp = _request('POST', base.rstrip('/') + '/audio/transcriptions',
                         headers={'Authorization': f'Bearer {key.strip()}'},

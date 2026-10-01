@@ -275,10 +275,12 @@ class RoomApp(tk.Tk):
         return 'break'
 
     def toggle_mic(self):
-        from room_voice import MAX_SECONDS, Recorder, VoiceError
+        from room_voice import MAX_SECONDS, NO_KEY_MESSAGE, Recorder, VoiceError, has_key
         if self.transcribing:return
         if self.recorder is not None:
             self.finish_recording();return
+        # Check before recording so nobody speaks into a recording that cannot be transcribed.
+        if not has_key(self.cfg):self.status.set(NO_KEY_MESSAGE);return
         recorder=Recorder()
         try:recorder.start()
         except VoiceError as exc:self.status.set(str(exc));return
