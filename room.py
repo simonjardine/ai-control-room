@@ -1,5 +1,6 @@
 """Conversation state with explicit public/private context boundaries."""
 import json
+import re
 from datetime import datetime
 from uuid import uuid4
 from providers import chat_completion
@@ -117,8 +118,49 @@ def parse_response(raw):
     return None
 
 
-def reply(cfg, spec, messages, tools=None, cancelled=None):
-    """A bounded JSON tool loop also works with providers without native function calls."""
+_FIRST_KEY = re.compile(r'\{\s*"(\w+)"\s*:\s*"')
+_ESCAPES = {'n': '\n', 't': '\t', 'r': '\r', 'b': '\b', 'f': '\f'}
+
+
+def visible_text(raw):
+    """The decoded "text" value of a possibly incomplete {"text": "..."} reply.
+
+    Tool calls and anything before a JSON object show nothing; an unfinished escape waits
+    for the next piece.
+    """
+    start = raw.find('{')
+    match = _FIRST_KEY.match(raw, start) if start >= 0 else None
+    if not match or match.group(1) != 'text':
+        return ''
+    out, i = [], match.end()
+    while i < len(raw):
+        c = raw[i]
+        if c == '"':
+            break
+        if c != '\\':
+            out.append(c);i += 1;continue
+        if i + 1 >= len(raw):
+            break
+        code = raw[i + 1]
+        if code == 'u':
+            digits = raw[i + 2:i + 6]
+            if len(digits) < 4:
+                break
+            try:
+                out.append(chr(int(digits, 16)))
+            except ValueError:
+                break
+            i += 6;continue
+        out.append(_ESCAPES.get(code, code));i += 2
+    # Recombine escaped surrogate pairs (emoji); a dangling half is dropped.
+    return ''.join(out).encode('utf-16', 'surrogatepass').decode('utf-16', 'ignore')
+
+
+def reply(cfg, spec, messages, tools=None, cancelled=None, on_text=None):
+    """A bounded JSON tool loop also works with providers without native function calls.
+
+    on_text(text) receives the visible reply as it streams; '' means a new model call began.
+    """
     from room_tools import MAX_TOOL_STEPS
     messages = [dict(m) for m in messages]
     if tools and tools.names:
@@ -141,8 +183,16 @@ def reply(cfg, spec, messages, tools=None, cancelled=None):
         if limit and step == limit:
             messages.append(dict(role='user', content='Tool budget reached. Return final JSON {"text":"..."} '
                 'summarising only completed work and remaining limitations. No more tool calls.'))
+        stream = None
+        if on_text:
+            received = []
+            on_text('')
+
+            def stream(piece):
+                received.append(piece)
+                on_text(visible_text(''.join(received)))
         ok, raw = chat_completion(spec['provider'], cfg, spec['model'], messages,
-                                  max_tokens=4096 if limit else 1200)
+                                  max_tokens=4096 if limit else 1200, on_delta=stream, cancelled=cancelled)
         if not ok:
             return False, raw
         obj = parse_response(raw)

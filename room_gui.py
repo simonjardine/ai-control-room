@@ -7,12 +7,11 @@ import threading
 import time
 import webbrowser
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import scrolledtext, messagebox
 from pathlib import Path
 from datetime import datetime
 from config import APP_DIR, RESOURCE_DIR, load_config
-from providers import provider_timeout
-from room import Conversation, DEFAULT_PROMPT, current_prompt, reply, room_specs, speaking_order
+from room import Conversation, current_prompt, reply, room_specs, speaking_order
 import room_presets
 from room_rounds import instruction, plan, round_key
 from room_store import RoomStore, memory_key, write_json, read_json
@@ -37,7 +36,8 @@ class RoomApp(tk.Tk):
         self.runtime_busy = False
         self.fids = list(self.specs)
         self.channel = 'public'; self.pending = []; self.busy = False; self.paused = False
-        self.active = None; self.work_step = None; self.closed = False; self.results = queue.Queue()
+        self.active = None; self.work_step = None; self.live = None
+        self.closed = False; self.results = queue.Queue()
         self.cost_ok = set()
         self.store=RoomStore(self.data_root)
         self.session=self.store.last() or self.store.fresh()
@@ -458,7 +458,20 @@ class RoomApp(tk.Tk):
                 t.tag_bind(tag,'<Button-1>',lambda event,u=url:webbrowser.open(u))
                 t.tag_bind(tag,'<Enter>',lambda event:t.configure(cursor='hand2'))
                 t.tag_bind(tag,'<Leave>',lambda event:t.configure(cursor='xterm'))
+        # Everything after this mark is the reply currently streaming in.
+        t.mark_set('live_start','end-1c');t.mark_gravity('live_start','left')
+        t.configure(state='disabled');self.update_live()
+
+    def update_live(self):
+        """Redraw only the streaming reply at the end of the transcript, and its seat card."""
+        t=self.transcript;t.configure(state='normal');t.delete('live_start','end')
+        live=self.live
+        if live and live['step']['channel']==self.channel:
+            fid=live['step']['fid']
+            t.insert('end',f'{self.labels[fid]}  ·  writing…\n','name')
+            t.insert('end',(live['text'] or '…')+'\n')
         t.configure(state='disabled');t.see('end')
+        if live:self.draw()
 
     def append(self,channel,speaker,text,error=False,before=None,**metadata):
         e=self.conversation.add(channel,speaker,text,error,before=before)
@@ -547,7 +560,8 @@ class RoomApp(tk.Tk):
 
     def pause(self):
         self.paused=True;self.cancel_turn.set()
-        self.status.set('Paused. An in-flight response can finish; further tools and model calls are stopped.')
+        self.status.set('Paused. The reply in progress stops now and keeps what it has written; '
+                        'queued replies wait. Click One round / resume to continue.')
 
     def advance(self):
         if self.busy or self.paused or self.closed:return
@@ -577,14 +591,22 @@ class RoomApp(tk.Tk):
         stage=('retry' if step.get('retry_of') else 'final verdict' if step['job']=='verdict'
                else f'round {step["round"]} of {step["rounds"]}' if step['rounds']>1 else
                'public room' if channel=='public' else 'private')
-        self.status.set(f'{self.labels[fid]} is responding · {stage} · up to {provider_timeout(spec["provider"])}s')
-        self.draw()
+        self.status.set(f'{self.labels[fid]} is responding · {stage}')
+        self.live=dict(step=step,text='');self.draw()
+        latest=dict(text='',sent=0.0)
+        def on_text(text):
+            # Throttle live updates; the Tk thread redraws at most about seven times a second.
+            latest['text']=text
+            now=time.monotonic()
+            if not text or now-latest['sent']>=.15:
+                latest['sent']=now;self.results.put(('stream',step,text))
         def worker():
             try:
                 tools=RoomTools(tool_settings,self.data_root,approve=approve,emit=emit,cancelled=cancel.is_set,cfg=cfg)
-                ok,text=reply(cfg,spec,messages,tools=tools,cancelled=cancel.is_set)
+                ok,text=reply(cfg,spec,messages,tools=tools,cancelled=cancel.is_set,on_text=on_text)
             except Exception as exc:ok,text=False,'Chat worker failed: '+type(exc).__name__
-            self.results.put(('reply',step,ok,text))
+            partial=latest['text'] if not ok and cancel.is_set() else ''
+            self.results.put(('reply',step,ok,text,partial))
         threading.Thread(target=worker,daemon=True).start()
 
     def poll(self):
@@ -596,16 +618,23 @@ class RoomApp(tk.Tk):
                     self.handle_tool_event(*item[1:]);continue
                 if item[0]=='voice':
                     self.voice_result(*item[1:]);continue
-                _,step,ok,text=item
-                self.busy=False;self.active=None;self.work_step=None
-                self.finish_reply(step,ok,text)
+                if item[0]=='stream':
+                    if self.live and self.live['step'] is item[1]:
+                        self.live['text']=item[2];self.update_live()
+                    continue
+                _,step,ok,text,partial=item
+                self.busy=False;self.active=None;self.work_step=None;self.live=None
+                self.finish_reply(step,ok,text,partial)
                 self.advance()
         except queue.Empty:pass
         self.approval_requests=[r for r in self.approval_requests if not r['event'].is_set()]
         self.poll_id=self.after(50,self.poll)
 
-    def finish_reply(self,step,ok,text):
+    def finish_reply(self,step,ok,text,partial=''):
         fid,channel=step['fid'],step['channel']
+        if partial.strip():
+            # Paused mid-stream: keep what the host already saw, clearly marked.
+            ok,text=True,partial.rstrip()+'\n[Stopped by host]'
         text=text if ok else 'Response stopped / error: '+text
         index=self.conversation.index(step['retry_of']) if step.get('retry_of') else None
         if index is None:

@@ -276,8 +276,10 @@ class CouncilScene(tk.Canvas):
             entry = latest.get(fid)
             snippet = entry['text'] if entry else 'Ready when you are. Send a message to begin.'
             if active:
+                live = (app.live or {}).get('text', '')
                 snippet = ('Replying privately to you. Public replies stay here.'
-                           if app.work_channel!='public' else 'Considering the conversation…')
+                           if app.work_channel!='public' else
+                           ('…' + live[-280:].lstrip() if len(live) > 280 else live) or 'Considering the conversation…')
             size = 10 if card_width >= 225 else 9
             lines = max(2, int((card_height-70)/self._font(size).metrics('linespace')))
             self.create_text(cx+13,cy+61,text=self._fit_text(snippet,card_width-26,lines,size),

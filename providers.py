@@ -457,6 +457,106 @@ def _chat_retry_delay(resp: requests.Response) -> float:
     return 0.5
 
 
+STREAM_TOTAL = 180   # A streaming reply may run this long while text keeps arriving...
+STREAM_IDLE = 30     # ...but stops if nothing arrives for this long.
+STOPPED = "Stopped by host."
+
+
+def _close_on_cancel(cancelled, close) -> threading.Event:
+    """Close an open stream from a helper thread as soon as the host pauses.
+
+    Set the returned event when the stream finishes so the helper exits.
+    """
+    done = threading.Event()
+
+    def watch():
+        while not done.wait(0.2):
+            if cancelled():
+                try:
+                    close()
+                except Exception:
+                    pass
+                return
+
+    if cancelled:
+        threading.Thread(target=watch, daemon=True).start()
+    return done
+
+
+def _stream_chat(base: str, key: str | None, provider: str, payload: dict[str, Any],
+                 on_delta, cancelled) -> tuple[bool, str] | None:
+    """Server-sent-events chat completion. None means "use the non-streaming request instead"."""
+    deadline = time.monotonic() + STREAM_TOTAL
+    try:
+        resp = requests.post(f"{base}/chat/completions", headers=_headers(key, provider),
+                             json=dict(payload, stream=True), stream=True, timeout=(15, STREAM_IDLE))
+    except requests.Timeout:
+        return False, f"Provider did not respond within {STREAM_IDLE}s"
+    except requests.RequestException as exc:
+        return False, f"Provider connection error ({type(exc).__name__})"
+    parts: list[str] = []
+    finish = None
+    done = _close_on_cancel(cancelled, resp.close)
+    try:
+        with resp:
+            if "text/event-stream" not in resp.headers.get("Content-Type", ""):
+                if resp.status_code in (401, 403):
+                    return _chat_response(resp, key or "")[:2]
+                if resp.status_code < 400:
+                    # The server ignored stream=true and answered in one piece.
+                    ok, text, _ = _chat_response(resp, key or "")
+                    if ok:
+                        on_delta(text)
+                    return ok, text
+                return None  # Streaming refused, rate limited or failed: the normal path retries.
+            for line in resp.iter_lines():
+                if cancelled and cancelled():
+                    return False, STOPPED
+                if time.monotonic() > deadline:
+                    return False, f"Streaming reply exceeded {STREAM_TOTAL}s"
+                if not line.startswith(b"data:"):
+                    continue
+                data = line[5:].strip()
+                if data == b"[DONE]":
+                    break
+                try:
+                    event = json.loads(data)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                if event.get("error") is not None:
+                    error = event["error"]
+                    message = error.get("message") if isinstance(error, dict) else error
+                    return False, f"Provider error: {_chat_error_text(message, key or '')}"
+                for choice in event.get("choices") or []:
+                    if not isinstance(choice, dict):
+                        continue
+                    piece = (choice.get("delta") or {}).get("content")
+                    if isinstance(piece, list):
+                        piece = "".join(p.get("text", "") for p in piece if isinstance(p, dict))
+                    if isinstance(piece, str) and piece:
+                        parts.append(piece)
+                        on_delta(piece)
+                    finish = choice.get("finish_reason") or finish
+    except requests.RequestException as exc:
+        if cancelled and cancelled():
+            return False, STOPPED
+        if isinstance(exc, (requests.Timeout, requests.ConnectionError)) and "Read timed out" in str(exc):
+            return False, f"Provider stopped sending for {STREAM_IDLE}s"
+        return False, f"Stream interrupted ({type(exc).__name__})"
+    finally:
+        done.set()
+    text = "".join(parts)
+    if finish == "length":
+        return False, "Response truncated at token limit"
+    if finish == "error":
+        return False, "Provider stopped before completing the response"
+    if not text.strip():
+        return False, "Empty final response"
+    return True, text
+
+
 ANTHROPIC_MAX_TOKENS = 16000
 # Claude models that accept output_config.effort; older ones (e.g. Haiku 4.5) reject it.
 _ANTHROPIC_EFFORT = re.compile(r"claude-(opus-(4-[5-9]|[5-9])|sonnet-(4-6|[5-9])|fable|mythos)")
@@ -494,8 +594,30 @@ def _anthropic_models(key: str, base: str) -> tuple[bool, str, list[str]]:
     return True, f"OK: {len(models)} model(s)", models
 
 
-def _anthropic_chat(key: str, base: str, model: str,
-                    messages: list[dict[str, str]]) -> tuple[bool, str]:
+def _anthropic_stream(key: str, base: str, request: dict[str, Any], on_delta, cancelled, sent):
+    """Stream one Claude reply; returns the final message, or None if the host paused it."""
+    import anthropic
+    client = _anthropic_client(key, base, anthropic.Timeout(STREAM_TOTAL, read=STREAM_IDLE, connect=15))
+    deadline = time.monotonic() + STREAM_TOTAL
+    with client.messages.stream(**request) as stream:
+        done = _close_on_cancel(cancelled, stream.close)
+        try:
+            for piece in stream.text_stream:
+                if (cancelled and cancelled()) or time.monotonic() > deadline:
+                    return None
+                sent.append(piece)
+                on_delta(piece)
+            return stream.get_final_message()
+        except Exception:
+            if cancelled and cancelled():
+                return None
+            raise
+        finally:
+            done.set()
+
+
+def _anthropic_chat(key: str, base: str, model: str, messages: list[dict[str, str]],
+                    on_delta=None, cancelled=None) -> tuple[bool, str]:
     """Claude through the official Messages API. The room's JSON contract stays in the prompt."""
     system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
     turns = [dict(role=m["role"], content=m["content"]) for m in messages
@@ -505,19 +627,27 @@ def _anthropic_chat(key: str, base: str, model: str,
         request["system"] = system
     if _ANTHROPIC_EFFORT.match(model):
         request["output_config"] = {"effort": "low"}  # Conversational turns; keeps replies quick.
-    deadline = time.monotonic() + DEFAULT_TIMEOUT
+    deadline = time.monotonic() + (STREAM_TOTAL if on_delta else DEFAULT_TIMEOUT)
+    sent: list[str] = []
     for attempt in range(2):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        client = _anthropic_client(key, base, remaining)
         try:
-            message = _bounded_call(lambda: client.messages.create(**request), remaining)
+            if on_delta:
+                message = _anthropic_stream(key, base, request, on_delta, cancelled, sent)
+                if message is None:
+                    return False, STOPPED if cancelled and cancelled() else \
+                        f"Streaming reply exceeded {STREAM_TOTAL}s"
+            else:
+                client = _anthropic_client(key, base, remaining)
+                message = _bounded_call(lambda: client.messages.create(**request), remaining)
         except requests.Timeout:
             break
         except Exception as exc:
             text, retryable = _anthropic_error(exc, key)
-            if not retryable or attempt == 1 or deadline - time.monotonic() <= 1:
+            # Never retry once text has been shown: the host would see it twice.
+            if not retryable or sent or attempt == 1 or deadline - time.monotonic() <= 1:
                 return False, text
             time.sleep(0.5)
             continue
@@ -539,7 +669,11 @@ def chat_completion(
     messages: list[dict[str, str]],
     temperature: float = 0.4,
     max_tokens: int = 512,
+    on_delta=None,
+    cancelled=None,
 ) -> tuple[bool, str]:
+    """Return (ok, raw reply or error). With on_delta, text is streamed to it as it arrives;
+    cancelled() is polled so the host can stop a reply part-way."""
     key, base, _src = resolve_credentials(provider, cfg, purpose="chat")
     if not base:
         return False, "Missing base URL"
@@ -552,7 +686,7 @@ def chat_completion(
         if base == hermes_base:
             key = hermes_key.strip()
     if provider == "anthropic":
-        return _anthropic_chat(key, base, model, messages)
+        return _anthropic_chat(key, base, model, messages, on_delta, cancelled)
 
     payload: dict[str, Any] = {
         "model": model, "messages": messages,
@@ -578,6 +712,10 @@ def chat_completion(
         # Preserve each model's default reasoning mode. Some endpoints require it;
         # disabling it globally rejects valid models such as Space Bunny Alpha.
 
+    if on_delta:
+        streamed = _stream_chat(base, key, provider, payload, on_delta, cancelled)
+        if streamed is not None:
+            return streamed
     timeout = provider_timeout(provider)
     deadline = time.monotonic() + timeout
     for attempt in range(2):

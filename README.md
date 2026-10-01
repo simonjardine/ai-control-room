@@ -49,17 +49,31 @@ Settings are saved locally to `config.json`; the supplied `config.example.json` 
 - **Local LLM · Load / unload** manages models already registered with a running Hermes router. Other OpenAI-compatible servers can support chat and model discovery without supporting these Hermes-specific controls.
 - Loading can use significant RAM/VRAM. Unloading releases model memory without removing its files. A later request may cause Hermes to load the model again.
 
-Local provider requests have a **90-second** deadline; hosted model and web-search requests have **60 seconds**. Quick local probes use a shorter deadline. Provider work runs outside the Tk event loop. A temporary provider failure can be retried once within the original deadline, using the same model.
+Replies **stream**: text appears in the transcript and on the seat card as the model writes it. A streaming reply can run for up to **3 minutes** while text keeps arriving, and stops if nothing arrives for **30 seconds**. If a provider refuses streaming, the app falls back to an ordinary request: **90 seconds** for local models, **60 seconds** for hosted models and web search. Provider work runs outside the Tk event loop. A temporary provider failure can be retried once, using the same model, as long as no text has been shown yet.
 
 OpenRouter, Kimi and local models keep their default reasoning mode. Supported OpenAI reasoning models use low effort. Only the final answer is shown. Invalid or failed responses are reported explicitly; there is no mock-model fallback.
 
 ## Conversation controls
 
-- **Public room:** invited models reply in speaking order. Later speakers see earlier public replies. This is a discussion, not an independent voting experiment.
+- **Public room:** invited models reply in speaking order. Later speakers see earlier public replies, except in a blind round.
+- **Presets** (dropdown beside the topic): a preset sets every seat's prompt and how a public message is answered: the number of rounds, whether the first round is blind, and an optional verdict seat that speaks once at the end.
+
+  | Preset                  | What happens                                                                                                                         |
+  | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+  | **My prompts**          | Your own seat prompts; one ordinary round. Your original prompts are kept here.                                                      |
+  | **Best answer**         | Concise, devil's advocate, fact-checker, alternatives and practical seats answer blind, then revise twice; seat 6 gives the verdict. |
+  | **Pro vs con**          | Seats 1–3 argue for, 4–5 against, for three rounds; seat 6 judges.                                                                   |
+  | **Stress-test my idea** | Critic, risk analyst, fixer, user's advocate and simplifier for two rounds; seat 6 rewrites the idea.                                |
+  | **Independent answers** | One blind round: no model sees another's answer.                                                                                     |
+  | **Free discussion**     | Three ordinary rounds, no verdict.                                                                                                   |
+
+  **Room controls → Preset & seat prompts…** edits the active preset, or saves it as a new one; edits to a built-in preset can be reset. A preset that makes more than one call per invited model asks once per chat before it starts, showing how many model calls one message will make. In a **blind round** a model cannot see the other models' replies or tool results from that round; you still see them as they arrive. Private chats are always one ordinary reply.
+
+- **↻ Retry** (under every model reply in the transcript): runs that one model again with the conversation as it was at that point, and replaces that reply in place. Earlier text is kept in the replay log. Available when the room is idle.
 - **Private chat:** only that seat's matching model receives the private channel. **Share latest private reply with room** explicitly copies a reply into the public discussion.
-- **Room controls:** edit individual prompts, speaking order and the optional GPT-last reviewer preset. Prompt and order changes apply to the next round.
+- **Room controls:** edit the preset and seat prompts, speaking order and the optional GPT-last reviewer preset. Prompt and order changes apply to the next round.
 - **Mic (F2):** click **● Mic**, speak, then click **■ Stop**. The recording is transcribed with OpenAI `gpt-4o-mini-transcribe` using your OpenAI key and placed in the message box for you to check before pressing Enter. Recordings are limited to three minutes and are not saved. Without an OpenAI key, Windows voice typing (**Win+H**) works in the message box.
-- **Pause:** holds the remaining reply queue and cancels pending write approvals. An already running provider request can finish.
+- **Pause:** stops a streaming reply immediately and keeps what it had written, marked _[Stopped by host]_; holds the remaining reply queue and cancels pending write approvals. **One round / resume** continues the queue.
 - **New chat / Chat history:** start a fresh conversation or resume a saved one. The latest chat is restored when the app opens.
 - **Memory / recap:** host-edited notes, separately scoped to public or private conversations. A model does not automatically create long-term memory. Turn **Use saved memory** off for a fresh start without those notes.
 
@@ -112,7 +126,7 @@ Keep backups of this local data separately if you need it. Do not force-add cred
 ## Development and checks
 
 ```powershell
-.\.venv\Scripts\python.exe -m compileall -q main.py config.py providers.py room.py room_gui.py room_scene.py room_dialogs.py room_settings.py room_store.py room_tools.py room_tool_dialogs.py room_web.py room_voice.py tests
+.\.venv\Scripts\python.exe -m compileall -q main.py config.py providers.py room.py room_gui.py room_scene.py room_dialogs.py room_settings.py room_store.py room_tools.py room_tool_dialogs.py room_web.py room_voice.py room_presets.py room_rounds.py room_preset_dialog.py tests
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
