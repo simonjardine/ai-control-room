@@ -89,6 +89,24 @@ class FirstRunGuiTests(unittest.TestCase):
         settings.close()
         self.request.assert_not_called()
 
+    def test_openai_dropdown_opens_at_newest_model_without_changing_selection(self):
+        settings = Settings(self.app)
+        settings.withdraw()
+        seat = settings.seats['atlas']
+        models = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna']
+        models += [f'older-model-{i}' for i in range(30)]
+        seat['combo']['values'] = models
+        seat['model'].set('older-model-25')
+        combo = seat['combo']
+        combo.tk.call('ttk::combobox::Post', str(combo))
+        self.app.update_idletasks()
+        popdown = combo.tk.call('ttk::combobox::PopdownWindow', str(combo))
+        self.assertEqual(combo.tk.call(popdown + '.f.l', 'yview')[0], 0.0)
+        self.assertEqual(seat['model'].get(), 'older-model-25')
+        combo.tk.call('ttk::combobox::Unpost', str(combo))
+        settings.close()
+        self.request.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

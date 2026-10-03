@@ -56,6 +56,7 @@ class Settings(tk.Toplevel):
             pc=ttk.Combobox(row,textvariable=provider,values=list(self.cfg.get('providers',{})),state='readonly',width=15);pc.pack(side='left',padx=8)
             ttk.Button(row,text='Refresh models',command=lambda p=provider:self.refresh(p.get())).pack(side='left')
             mc=ttk.Combobox(frame,textvariable=model,values=[spec['model']],width=80);mc.pack(fill='x',padx=10)
+            mc.configure(postcommand=lambda c=mc,p=provider:self.model_list_opening(c,p.get()))
             ttk.Label(frame,text='Individual system prompt (this participant only)').pack(anchor='w',padx=10,pady=(15,5))
             prompt=scrolledtext.ScrolledText(frame,wrap='word',font=('Segoe UI',11));prompt.pack(fill='both',expand=True,padx=10,pady=(0,10));prompt.insert('1.0',app.prompts[fid])
             self.seats[fid]=dict(provider=provider,model=model,combo=mc,prompt=prompt)
@@ -80,6 +81,16 @@ class Settings(tk.Toplevel):
         self.local_status=tk.StringVar(value='Refresh to see loaded / unloaded models.')
         ttk.Label(local,textvariable=self.local_status,wraplength=860).pack(fill='x',padx=10,pady=10)
         self.protocol('WM_DELETE_WINDOW',self.close);self.timer=self.after(50,self.poll)
+
+    def model_list_opening(self,combo,provider):
+        if provider!='openai':return
+        # Tk positions the popup at the selected model after postcommand.
+        # Run after that positioning so newer models above it stay visible.
+        def show_top():
+            if self.dead or not combo.winfo_exists():return
+            popdown=combo.tk.call('ttk::combobox::PopdownWindow',str(combo))
+            combo.tk.call(popdown+'.f.l','yview','moveto',0)
+        self.after_idle(show_top)
 
     def draft(self):
         cfg=copy.deepcopy(self.cfg)

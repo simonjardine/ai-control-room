@@ -342,6 +342,26 @@ def _parse_model_ids(data: Any) -> list[str]:
 
 def _prefer_sort(provider: str, models: list[str]) -> list[str]:
 
+    if provider == "openai":
+        def model_order(model: str):
+            # /models has no useful display order. Rank numbered GPT families
+            # naturally (6.10 > 6.9), with stable aliases before dated snapshots.
+            name = model.lower()
+            match = re.match(r"gpt-(\d+)(?:\.(\d+))?(?:\.(\d+))?(?=-|$)", name)
+            if match:
+                version = tuple(-int(part or 0) for part in match.groups())
+                suffix = name[match.end():].strip("-")
+                snapshot = bool(re.search(r"-\d{4}-\d{2}-\d{2}$", name))
+                family = suffix.split("-")[0]
+                tier = {"": 0, "astra": 1, "sol": 2, "luna": 3}.get(family, 4)
+                return (0, version, snapshot, tier, name)
+            match = re.match(r"o(\d+)(?=-|$)", name)
+            if match:
+                return (1, (-int(match.group(1)), 0, 0), False, 0, name)
+            return (2, (0, 0, 0), False, 0, name)
+
+        return sorted(models, key=model_order)
+
     if provider == "openrouter":
 
         deep = [m for m in models if "deepseek" in m.lower()]
